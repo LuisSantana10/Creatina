@@ -61,6 +61,11 @@ h2{margin:0;font-family:var(--head);font-size:1.4rem;font-weight:700;letter-spac
 .doses button[aria-pressed="true"]{background:var(--accent);color:var(--ink)}
 .doses button:disabled{cursor:not-allowed}
 .doses button:disabled:not([aria-pressed="true"]){opacity:.4}
+.doses .wide{grid-column:1/-1}
+.other{display:flex;align-items:center;gap:10px;margin-top:10px}
+.other input{flex:1;min-width:0;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 16px;font:inherit;font-weight:600}
+.other input:disabled{opacity:.6}
+.other span{color:var(--muted);font-weight:600}
 .check{display:flex;gap:12px;align-items:center;margin:18px 0 16px;min-height:44px;cursor:pointer}
 .check input{width:22px;height:22px;accent-color:var(--accent);flex:none}
 .err{margin:0 0 12px;color:var(--err);font-size:.95rem;min-height:0}
@@ -97,6 +102,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
       <h2>Marcar hoje.</h2>
       <p class="label">Quantidade</p>
       <div class="doses" id="doses"></div>
+      <div class="other" id="other" hidden><input id="otherIn" type="text" inputmode="decimal" placeholder="Quantidade em gramas" autocomplete="off" aria-label="Quantidade em gramas"><span>g</span></div>
       <label class="check"><input type="checkbox" id="fix"><span>Usar sempre esta quantidade</span></label>
       <p class="err" id="err" role="alert"></p>
       <button class="go" id="go" type="button"></button>
@@ -112,7 +118,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   var pad=function(n){return String(n).padStart(2,'0')};
   var ymd=function(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
   var $=function(id){return document.getElementById(id)};
-  var user=null, ready=false, busy=false, currentId=null, state={days:{},def:null}, sel=null;
+  var user=null, ready=false, busy=false, currentId=null, state={days:{},def:null}, sel=null, otherMode=false;
   var first=new Date(); var view=new Date(first.getFullYear(),first.getMonth(),1);
 
   var dosesEl=$('doses');
@@ -120,12 +126,28 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     (function(n){
       var b=document.createElement('button');
       b.type='button'; b.textContent=n+' g'; b.dataset.g=n;
-      b.addEventListener('click',function(){sel=n;render();});
+      b.addEventListener('click',function(){otherMode=false;setErr('');sel=n;render();});
       dosesEl.appendChild(b);
     })(n);
   }
+  var ob=document.createElement('button');
+  ob.type='button'; ob.textContent='Outro'; ob.className='wide'; ob.id='outroBtn';
+  ob.addEventListener('click',function(){
+    otherMode=true; setErr(''); if(isStd(sel)) sel=null; render(); $('otherIn').focus();
+  });
+  dosesEl.appendChild(ob);
 
   function setErr(m){$('err').textContent=m||'';}
+  function isStd(g){return g!=null&&Number.isInteger(g)&&g>=1&&g<=5;}
+  function fmt(g){return String(g).replace('.',',');}
+  var inp=$('otherIn');
+  inp.addEventListener('input',function(){
+    var t=inp.value.replace(',','.').trim(), v=parseFloat(t);
+    if(!t){sel=null;setErr('');}
+    else if(!isFinite(v)||v<1||v>50){sel=null;setErr('Digite um valor de 1 a 50 g.');}
+    else{sel=Math.round(v*10)/10;setErr('');}
+    render();
+  });
   function closePop(){$('pop').hidden=true;$('me').setAttribute('aria-expanded','false');}
   function run(fn){
     if(busy) return;
@@ -138,15 +160,15 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     var d=await db.from('doses_tomadas').select('dia,gramas').order('dia',{ascending:false}).limit(1000);
     var c=await db.from('configuracoes').select('dose_padrao').maybeSingle();
     check(d); check(c);
-    state={days:{},def:c.data?c.data.dose_padrao:null};
-    d.data.forEach(function(r){state.days[r.dia]={g:r.gramas};});
+    state={days:{},def:(c.data&&c.data.dose_padrao!=null)?Number(c.data.dose_padrao):null};
+    d.data.forEach(function(r){state.days[r.dia]={g:r.gramas==null?null:Number(r.gramas)};});
   }
 
   db.auth.onAuthStateChange(function(ev,session){
     setTimeout(function(){
       var u=session&&session.user?session.user:null, id=u?u.id:null;
       if(ready&&id===currentId){user=u;return;}
-      currentId=id; user=u; state={days:{},def:null}; sel=null; closePop(); setErr('');
+      currentId=id; user=u; state={days:{},def:null}; sel=null; otherMode=false; closePop(); setErr('');
       if(!u){ready=true;render();return;}
       loadData().catch(function(){setErr('Não foi possível carregar os seus dias.');}).then(function(){
         sel=state.def; ready=true; render();
@@ -230,12 +252,16 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     h1.className=done?'done':'';
     h1.textContent=done?'Já tomou hoje.':'Ainda não tomou hoje.';
     var dt=now.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
-    $('sub').textContent=dt.charAt(0).toUpperCase()+dt.slice(1)+'.'+(done?(g?' Marcado com '+g+' g.':' Marcado sem quantidade.'):'');
+    $('sub').textContent=dt.charAt(0).toUpperCase()+dt.slice(1)+'.'+(done?(g?' Marcado com '+fmt(g)+' g.':' Marcado sem quantidade.'):'');
     showStreak(T);
     var go=$('go'); go.className='go'+(done?' done':''); go.textContent=done?'Desmarcar hoje':'Tomei hoje'; go.disabled=busy;
+    var cu=otherMode||(g!=null&&!isStd(g));
     Array.prototype.forEach.call(dosesEl.children,function(b){
-      b.setAttribute('aria-pressed',String(Number(b.dataset.g)===g)); b.disabled=locked;
+      b.setAttribute('aria-pressed',String(b.id==='outroBtn'?cu:(!otherMode&&Number(b.dataset.g)===g))); b.disabled=locked;
     });
+    $('other').hidden=!cu; inp.disabled=locked;
+    if(!cu) inp.value='';
+    else if(document.activeElement!==inp&&g!=null&&!isStd(g)) inp.value=fmt(g);
     var fix=$('fix'); fix.checked=state.def!=null; fix.disabled=busy||done||(state.def==null&&sel==null);
     var y=view.getFullYear(), m=view.getMonth();
     $('mname').textContent=view.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
@@ -246,7 +272,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     for(var d=1;d<=new Date(y,m+1,0).getDate();d++){
       var key=y+'-'+pad(m+1)+'-'+pad(d), r=state.days[key];
       var cls='day'+(r?' on':'')+(key===T?' today':'')+(key>T?' future':'');
-      html+='<div class="'+cls+'">'+d+(r&&r.g?'<small>'+r.g+'g</small>':'')+'</div>';
+      html+='<div class="'+cls+'">'+d+(r&&r.g?'<small>'+fmt(r.g)+'g</small>':'')+'</div>';
     }
     $('cal').innerHTML=html;
   }
