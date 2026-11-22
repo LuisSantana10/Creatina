@@ -31,6 +31,12 @@ h1.done{color:var(--ok)}
 .pop .go{height:48px;font-size:1rem}
 .guest{margin-top:32px}
 .guest .go{max-width:360px}
+main.center{min-height:100vh;min-height:calc(100svh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding-top:0;padding-bottom:0}
+main.center h1{padding-right:0}
+main.center .guest{width:100%;display:flex;justify-content:center;margin-top:28px}
+.streak{margin:14px 0 0;display:inline-block;padding:8px 16px;border-radius:20px;background:var(--soft);color:var(--accent);font-weight:600;font-size:.95rem}
+.streak.broken{background:transparent;border:1px solid var(--err);color:var(--err)}
+.streak:empty{display:none}
 .layout{display:grid;gap:20px;margin-top:32px}
 @media (min-width:860px){.layout{grid-template-columns:1.25fr 1fr;align-items:start}}
 .card{background:var(--card);border-radius:28px;padding:24px}
@@ -75,6 +81,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   </div>
   <h1 id="status"></h1>
   <p class="sub" id="sub"></p>
+  <p class="streak" id="streak"></p>
   <div class="guest" id="guest" hidden>
     <button class="go" id="login" type="button">Entrar com Google</button>
   </div>
@@ -187,9 +194,30 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   $('prev').addEventListener('click',function(){view=new Date(view.getFullYear(),view.getMonth()-1,1);render();});
   $('next').addEventListener('click',function(){view=new Date(view.getFullYear(),view.getMonth()+1,1);render();});
 
+  function addDays(k,n){var p=k.split('-');return ymd(new Date(+p[0],+p[1]-1,+p[2]+n));}
+  function runEnding(k){var c=0;while(state.days[k]){c++;k=addDays(k,-1);}return c;}
+  function plural(n,a,b){return n+' '+(n===1?a:b);}
+  function showStreak(T){
+    var el=$('streak'), y1=addDays(T,-1), parts=[], broken=false;
+    var end=state.days[T]?T:(state.days[y1]?y1:null), keys=Object.keys(state.days).sort();
+    if(end){
+      var cur=runEnding(end), s=addDays(end,-(cur-1));
+      var older=keys.filter(function(k){return k<s;});
+      var pv=older.length?runEnding(older[older.length-1]):0;
+      parts.push(plural(cur,'dia seguido','dias seguidos'));
+      if(!state.days[T]) parts.push('Marque hoje para manter');
+      if(pv) parts.push('A sequência anterior, de '+plural(pv,'dia','dias')+', foi quebrada');
+    }else if(keys.length){
+      broken=true; parts.push('Sequência quebrada');
+      parts.push('Você tinha '+plural(runEnding(keys[keys.length-1]),'dia seguido','dias seguidos'));
+    }else parts.push('Marque hoje para começar a sua sequência');
+    el.className='streak'+(broken?' broken':''); el.textContent=parts.join('. ')+'.';
+  }
   function render(){
     var now=new Date(), T=ymd(now), h1=$('status');
     document.querySelector('.user').hidden=!(ready&&user);
+    document.querySelector('main').classList.toggle('center',ready&&!user);
+    $('streak').textContent='';
     $('app').hidden=!(ready&&user); $('guest').hidden=!(ready&&!user);
     if(!ready){h1.className='';h1.textContent='';$('sub').textContent='';return;}
     if(!user){
@@ -203,6 +231,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     h1.textContent=done?'Já tomou hoje.':'Ainda não tomou hoje.';
     var dt=now.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
     $('sub').textContent=dt.charAt(0).toUpperCase()+dt.slice(1)+'.'+(done?(g?' Marcado com '+g+' g.':' Marcado sem quantidade.'):'');
+    showStreak(T);
     var go=$('go'); go.className='go'+(done?' done':''); go.textContent=done?'Desmarcar hoje':'Tomei hoje'; go.disabled=busy;
     Array.prototype.forEach.call(dosesEl.children,function(b){
       b.setAttribute('aria-pressed',String(Number(b.dataset.g)===g)); b.disabled=locked;
